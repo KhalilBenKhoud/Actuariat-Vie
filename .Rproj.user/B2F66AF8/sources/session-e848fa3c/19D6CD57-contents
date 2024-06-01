@@ -1,0 +1,242 @@
+---
+title: "Projet Actuariat"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Projets Actuariat-Vie Sujet 5 : Produit de capital décès avec prime annuelle
+
+## importer les packages
+````{r, warning=FALSE , message=FALSE}
+library(lifecontingencies)
+library(forecast)
+library(reliaR)
+library(gnm)
+library(demography)
+library(StMoMo)
+
+
+````
+
+```{r echo=TRUE}
+deaths<-read.table(file = 'deaths.txt',header = TRUE ,fill=TRUE ,sep = "", dec = ".")
+
+head(deaths)
+```
+
+## Question 2
+
+```{r}
+deaths$Age <- as.numeric(as.character(deaths$Age))
+france2010 = deaths[deaths$Year == 2010,]
+head(france2010)
+data <- data.frame(france2010)
+head(data)
+
+
+
+
+data$Age[nrow(data)]<-data$Age[nrow(data) - 1] + 1
+
+for (i in 1:nrow(data)) {
+  current_age <- data$Age[i]
+  data$lx[i] <- nrow(data[data$Age >= current_age,]) 
+}
+head(data)
+lifetable <-  new("lifetable", x=data$Age, lx=data$lx ,name="france")
+table <- as(lifetable,'data.frame')
+head(table)
+age<- table$x
+survivalRate <- table$px
+
+plot(age, survivalRate,
+     xlab = "Age",
+     ylab = "Survival Rate (px)",
+     main = "Survival Rates by Age")
+
+
+points(age, survivalRate, pch = 16, col = "blue")  # 16 represents circle marker, blue color
+
+
+abline(h = mean(survivalRate), col = "red", linetype = "dashed")  # Add horizontal line at average mortality
+
+axis(1)  # Show x-axis labels
+axis(2)  # Show y-axis labels
+title("Survival Rates by Age")
+
+```
+
+## Question 3 
+1) Préparation des données
+2) Spécification du modèle
+3) Estimation des paramètres
+4) Analyse des résultats
+Autres modèles disponibles dans le package StMoMo :
+ * Modèle de Yang-Peterson
+ * Modèle de Lee-Carter multiplicatif
+
+## Question 4
+
+## Modèle Lee-Carter en choisissant les plages d'âge et de période
+
+On observant les paramètres du modèle sur toute la pèriode : 
+
++ αx : une fonction  décroissante pour les âges faibles inférieurs à 25 ans puis une forte croissante jusqu’à la fin de la vie d'ou la plage entre 25 et 100.
+
++ kt : cette fonction décroît sur toute la période, d'ou la plage commence de 1955 jusqu'à 2018.   
+
+````{r}
+
+lafrance <- hmd.mx(country = "FRATNP",username = "khalil.b.khoud1998@gmail.com",password = "Ab&123456",label = "france")
+
+
+lafrance
+
+carterData <- StMoMoData(data = lafrance, series = "female" ,type = "central")
+
+constLC <- function(ax, bx, kt, b0x, gc, wxt, ages) {
+     c1 <- mean(kt[1, ], na.rm = TRUE)
+     c2 <- sum(bx[, 1], na.rm = TRUE)
+     list(ax = ax + c1 * bx, bx = bx / c2, kt = c2 * (kt - c1))}
+age <- 25:100
+annees <- 1955:2018
+LC <- StMoMo(link = "log", staticAgeFun = TRUE, periodAgeFun = "NP", constFun = constLC)
+
+fitData <- fit(LC, data = carterData, ages.fit = age, years.fit = annees )
+
+
+
+plot(fitData)
+
+
+
+
+````
+
+
+## Analyse des paramètres :
+
+* αx :  la valeur moyenne des logs de la mortalité instantanné ( ln µ( x t, ) au cours du temps  ) croit fonction de l'age entre -7 et -1 .
+
+* βx indique la sensibilité de la mortalité instantanée par rapport à l’évolution générale de la mortalité. On constate des pics sur les tranches d’âges entre 20 et 100 ans.
+
+* D’après la figure ci-dessus et comme  kt indique l’évolution générale de la mortalité dans le temps ; On constate une tendance linéaire à la décroissance du paramètre k  entre 1950 et 2020. Cette tendance à la décroissance du paramètre k devient négatif au cours de la période implique d’après la formule de Lee-Carter une diminution des taux instantanés de mortalité. En conséquence, on assiste à une augmentation  de la probabilité  de la  survie sur la période observée.
+
+
+
+## Les résidus du modèle 
+
+
+
+```{r warning=FALSE}
+model_res <- resid(fitData)
+plot(model_res)
+```
+
+## Question 5
+
+````{r}
+lafrance.smth <- smooth.demogdata(lafrance,method="mspline")
+lafranceLcaM <- lca(lafrance.smth ,series ="female" , max.age = 110, adjust="dt")
+
+LcFore=forecast(lafranceLcaM, h = 25 ,method=mean)
+lafranceForcast <- forecast(fitData , h = 25, method=mean)
+plot(lafranceForcast, only.kt=TRUE)
+
+````
+
+
+## Question 6
+
+````{r}
+
+lafrance40 <- extract.ages(LcFore, ages=40:111)
+plot(lafrance40)
+
+````
+
+## Question 8
+
+````{r}
+
+primeAnuelle <- function(ageDeLassure) {
+  i <- 0.01
+  K <- 20000
+  actuarialtable <- new("actuarialtable", x=data$Age, lx=data$lx,interest=i)
+  #on calcule les Ax
+  ax <- axn(actuarialtable, x=ageDeLassure, m=0)
+  Ax <- Axn(actuarialtable, x=ageDeLassure, m=0)
+  #selon le principe de Tarification sur le principe d’équité actuarielle 
+  prime <- K *(Ax / ax)
+  prime 
+}
+
+primeAnuelle(40)
+
+
+
+````
+
+## Question 8
+
+La VAP dépend de deux facteurs qui sont l’âge de l’assuré et le taux technique i 
+
+* Concernant l’âge la VAP crois en fonction de l’âge (corrélation positive ) vu que la probabilité de décès augmente en fonction de ce dernier .
+
+* Le taux technique : La valeur actuelle probable VAP augmente lorsque le taux technique diminue.
+
+## Question 9 (refaire les plots pour les hommes) 
+
+````{r}
+carterDataMales <- StMoMoData(data = lafrance, series = "male" ,type = "central")
+
+constLC <- function(ax, bx, kt, b0x, gc, wxt, ages) {
+     c1 <- mean(kt[1, ], na.rm = TRUE)
+     c2 <- sum(bx[, 1], na.rm = TRUE)
+     list(ax = ax + c1 * bx, bx = bx / c2, kt = c2 * (kt - c1))}
+age <- 25:100
+annees <- 1955:2018
+LC <- StMoMo(link = "log", staticAgeFun = TRUE, periodAgeFun = "NP", constFun = constLC)
+fitData <- fit(LC, data = carterDataMales, ages.fit = age, years.fit = annees )
+plot(fitData)
+
+
+````
+
+
+## Le résidus du modèle 
+
+```{r warning=FALSE}
+model_res <- resid(fitData)
+plot(model_res)
+```
+
+````{r}
+lafrance.smth <- smooth.demogdata(lafrance,method="mspline")
+lafranceLcaM <- lca(lafrance.smth ,series ="male" , max.age = 110, adjust="dt")
+
+LcFore=forecast(lafranceLcaM, h = 25 ,method=mean)
+lafranceForcast <- forecast(fitData , h = 25, method=mean)
+plot(lafranceForcast, only.kt=TRUE)
+lafrance40 <- extract.ages(LcFore, ages=40:111)
+plot(lafrance40)
+
+````
+
+
+
+## on constate les changements suivants
+
+
+* les paramètres d’un modèle de Lee-Carter changents légérement ainsi que leurs pentes
+* la pente du forecast change légérement
+* la courbe des taux de mortalité est moins épaisse chez les hommes
+
+
+## Coclusion 
+
+
+l'espérance de vie des hommes dans ce portefeuille est légèrement plus élevée que celle des femmes
